@@ -86,7 +86,7 @@ def gerar_excel_formulario(dados):
             worksheet.set_row(row, 30)
             row += 1
             
-        worksheet.set_column('A:A', 30); worksheet.set_column('B:C', 25); worksheet.set_column('D:D', 10)
+        worksheet.set_column('A:A', 30); worksheet.set_column('B:C', 50); worksheet.set_column('D:D', 10)
         
         row += 2
         worksheet.merge_range(row, 0, row, 3, '_________________________________________', workbook.add_format({'align': 'center'}))
