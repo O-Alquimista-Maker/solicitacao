@@ -43,3 +43,5 @@ dist/
 # O secrets.toml já está em uma pasta que começa com '.',
 # mas adicionar explicitamente não faz mal.
 .streamlit/secrets.toml
+
+ajuda no commit.txt
