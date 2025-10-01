@@ -1,0 +1,45 @@
+# Arquivo gerado pelo sistema operacional
+.DS_Store
+Thumbs.db
+
+# Pasta do ambiente virtual Python
+venv/
+*.venv
+.venv
+
+# Pastas de cache do Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Arquivos de configuração de IDEs e editores
+.vscode/
+.idea/
+
+# Arquivos de dependências do Poetry (se usado)
+poetry.lock
+
+# Arquivos de ambiente
+.env
+.env.*
+
+# Arquivos de teste e cobertura
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Arquivos de build e distribuição
+build/
+dist/
+*.egg-info/
+
+# Arquivos de log
+*.log
+
+# Arquivos do Streamlit que não devem ser versionados
+# A pasta .streamlit em si é necessária, mas se você tivesse segredos
+# fora dela, eles seriam ignorados.
+# O secrets.toml já está em uma pasta que começa com '.',
+# mas adicionar explicitamente não faz mal.
+.streamlit/secrets.toml
