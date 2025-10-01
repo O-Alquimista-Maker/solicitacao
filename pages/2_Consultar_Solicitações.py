@@ -7,13 +7,15 @@ from io import BytesIO
 import psycopg2
 import warnings
 from PIL import Image
+from utils import configurar_pagina
 
 warnings.filterwarnings("ignore", message="pandas only supports SQLAlchemy connectable.*", category=UserWarning)
 
 # --- FUNÇÕES DE BANCO DE DADOS E UTILITÁRIOS ---
 def init_connection():
     try: return psycopg2.connect(**st.secrets["database"])
-    except: return None
+    except Exception as e:
+        st.error(f"Erro ao conectar ao banco de dados: {e}"); return None
 
 def fetch_all_solicitacoes(conn):
     if conn is None: return pd.DataFrame()
@@ -24,7 +26,6 @@ def fetch_all_solicitacoes(conn):
     except Exception as e:
         st.error(f"Erro ao buscar dados: {e}"); return pd.DataFrame()
 
-# >>>>> NOVA FUNÇÃO DE EXCLUSÃO <<<<<
 def delete_solicitacao(conn, id_para_excluir):
     if conn is None: return False
     try:
@@ -33,11 +34,18 @@ def delete_solicitacao(conn, id_para_excluir):
             conn.commit()
         return True
     except Exception as e:
-        st.error(f"Erro ao excluir a solicitação: {e}")
-        conn.rollback()
-        return False
+        st.error(f"Erro ao excluir a solicitação: {e}"); conn.rollback(); return False
 
-# ... (funções to_excel e gerar_excel_formulario permanecem inalteradas) ...
+def update_status(conn, id_para_atualizar, novo_status):
+    if conn is None: return False
+    try:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE solicitacoes SET status = %s WHERE id = %s;", (novo_status, id_para_atualizar))
+            conn.commit()
+        return True
+    except Exception as e:
+        st.error(f"Erro ao atualizar o status: {e}"); conn.rollback(); return False
+
 def to_excel(df):
     output = BytesIO()
     df_copy = df.copy()
@@ -77,8 +85,7 @@ def gerar_excel_formulario(dados):
         worksheet.write('D1', 'F00000', code_format)
         worksheet.write('D2', 'Ver:00', code_format)
         
-        worksheet.set_row(0, 35)
-        worksheet.set_row(1, 35)
+        worksheet.set_row(0, 35); worksheet.set_row(1, 35)
         
         row = 2
         for campo, valor_dado in dados.items():
@@ -102,88 +109,98 @@ def gerar_excel_formulario(dados):
 if not st.session_state.get("identificado", False):
     st.error("Por favor, faça a identificação na página principal para continuar."); st.stop()
 
-st.set_page_config(layout="wide", page_title="Consultar Solicitações")
-st.title("📊 Consultar Histórico de Solicitações")
+configurar_pagina(titulo_pagina="📊 Consultar Histórico de Solicitações")
 st.markdown("---")
 
 conn = init_connection()
 if not conn:
-    st.error("Conexão com o banco de dados falhou."); st.stop()
+    st.stop()
 
 # --- MODAL DE CONFIRMAÇÃO DE EXCLUSÃO ---
-# Inicializa o estado para controlar o modal
 if 'solicitacao_para_excluir' not in st.session_state:
     st.session_state.solicitacao_para_excluir = None
 
-# Se houver uma solicitação marcada para exclusão, mostra o modal
 if st.session_state.solicitacao_para_excluir is not None:
     solicitacao = st.session_state.solicitacao_para_excluir
-    
-    # Usamos um st.expander como um modal improvisado
     with st.expander("🚨 **CONFIRMAR EXCLUSÃO** 🚨", expanded=True):
         st.warning(f"Você tem certeza que deseja excluir permanentemente a solicitação para o equipamento **{solicitacao['modelo_equipamento']}** (ID: {solicitacao['id']})?")
         st.write("**Esta ação não pode ser desfeita.**")
-        
         col1, col2, _ = st.columns([1, 1, 4])
         with col1:
             if st.button("Sim, excluir", type="primary"):
                 if delete_solicitacao(conn, solicitacao['id']):
                     st.success("Solicitação excluída com sucesso!")
-                    st.session_state.solicitacao_para_excluir = None # Limpa o estado
-                    st.rerun() # Recarrega a página
-                else:
-                    st.error("A exclusão falhou. Verifique o console para mais detalhes.")
+                    st.session_state.solicitacao_para_excluir = None; st.rerun()
         with col2:
             if st.button("Cancelar"):
-                st.session_state.solicitacao_para_excluir = None # Limpa o estado
-                st.rerun() # Recarrega a página
+                st.session_state.solicitacao_para_excluir = None; st.rerun()
 
-# --- LÓGICA PRINCIPAL DA PÁGINA (só executa se não houver modal aberto) ---
+# --- LÓGICA PRINCIPAL DA PÁGINA ---
 if st.session_state.solicitacao_para_excluir is None:
     df = fetch_all_solicitacoes(conn)
     if df.empty:
         st.warning("Nenhuma solicitação encontrada."); st.stop()
 
     # --- FILTROS ---
-    st.sidebar.markdown("---"); st.sidebar.header("Filtros da Consulta")
+    st.sidebar.header("Filtros da Consulta")
     search_term = st.sidebar.text_input("Buscar por Solicitante, Modelo ou Código:")
+    
+    status_options = ["Todos"] + list(df['status'].unique())
+    status_filter = st.sidebar.multiselect("Filtrar por Status:", options=status_options, default=["Todos"])
+    
     min_date, max_date = df['data_solicitacao'].min().date(), df['data_solicitacao'].max().date()
     date_range = st.sidebar.date_input("Filtrar por Data:", value=(min_date, max_date), min_value=min_date, max_value=max_date)
+    
     df_filtrado = df.copy()
     if search_term:
         df_filtrado = df_filtrado[df_filtrado.apply(lambda row: search_term.lower() in str(row['solicitante']).lower() or \
                                                               search_term.lower() in str(row['modelo_equipamento']).lower() or \
                                                               search_term.lower() in str(row['codigo_equipamento']).lower(), axis=1)]
+    if "Todos" not in status_filter:
+        df_filtrado = df_filtrado[df_filtrado['status'].isin(status_filter)]
     if len(date_range) == 2:
         start_date, end_date = pd.to_datetime(date_range[0]).date(), pd.to_datetime(date_range[1]).date()
         df_filtrado = df_filtrado[df_filtrado['data_solicitacao'].dt.date.between(start_date, end_date)]
 
     # --- EXIBIÇÃO DA TABELA ---
     st.write(f"**Exibindo {len(df_filtrado)} de {len(df)} solicitações.**")
-    colunas = st.columns((2, 2, 2, 1, 2)) # Ajusta a proporção para a nova coluna de ações
-    campos = ["Data", "Solicitante", "Modelo", "Foto", "Ações"]
+    
+    colunas = st.columns((2, 2, 2, 2, 1, 2)); campos = ["Data", "Solicitante", "Modelo", "Status", "Foto", "Ações"]
     for col, campo in zip(colunas, campos):
         col.markdown(f"**{campo}**")
 
     if 'download_info' not in st.session_state:
         st.session_state.download_info = None
 
+    status_list = ["Aguardando Envio", "Em Manutenção", "Concluído", "Cancelado"]
+    status_colors = {"Aguardando Envio": "gray", "Em Manutenção": "orange", "Concluído": "green", "Cancelado": "red"}
+    status_icons = {"Aguardando Envio": "📬", "Em Manutenção": "🛠️", "Concluído": "✅", "Cancelado": "❌"}
+
     for index, row in df_filtrado.iterrows():
-        col1, col2, col3, col4, col5 = st.columns((2, 2, 2, 1, 2))
+        col1, col2, col3, col4, col5, col6 = st.columns((2, 2, 2, 2, 1, 2))
         with col1: st.write(row['data_solicitacao'].strftime('%d/%m/%Y %H:%M'))
         with col2: st.write(row['solicitante'])
         with col3: st.write(row['modelo_equipamento'])
         with col4:
+            current_status_index = status_list.index(row['status']) if row['status'] in status_list else 0
+            novo_status = st.selectbox(
+                "Status", options=status_list, index=current_status_index, 
+                key=f"status_{row['id']}", label_visibility="collapsed"
+            )
+            st.markdown(f"<span style='color:{status_colors.get(row['status'], 'black')};'>{status_icons.get(row['status'], '')} {row['status']}</span>", unsafe_allow_html=True)
+            if novo_status != row['status']:
+                if update_status(conn, row['id'], novo_status):
+                    st.success(f"Status do ID {row['id']} atualizado para '{novo_status}'!")
+                    st.rerun()
+        with col5:
             if pd.notna(row['url_imagem']):
                 st.markdown(f'<a href="{row["url_imagem"]}" target="_blank"><img src="{row["url_imagem"]}" width="70"></a>', unsafe_allow_html=True)
             else:
                 st.write("N/A")
-        with col5:
-            # Coluna para os botões de ação
+        with col6:
             action_col1, action_col2 = st.columns(2)
             with action_col1:
                 if st.button("🖨️", key=f"form_{row['id']}", help="Gerar formulário Excel"):
-                    # ... (lógica para gerar formulário)
                     dados_para_excel = {
                         "Data da Solicitação": row['data_solicitacao'].strftime('%d/%m/%Y %H:%M:%S'), "Solicitante": row['solicitante'],
                         "Setor/Cargo": row['setor_cargo'], "Modelo do Equipamento": row['modelo_equipamento'],
@@ -192,16 +209,11 @@ if st.session_state.solicitacao_para_excluir is None:
                         "Valor": row['valor'] or 0.0, "Motivo do Envio": row['motivo_envio']
                     }
                     excel_bytes = gerar_excel_formulario(dados_para_excel)
-                    st.session_state.download_info = {
-                        "data": excel_bytes,
-                        "file_name": f"solicitacao_{row['solicitante'].split(' ')[0]}_{row['data_solicitacao'].strftime('%Y%m%d')}.xlsx"
-                    }
+                    st.session_state.download_info = {"data": excel_bytes, "file_name": f"solicitacao_{row['solicitante'].split(' ')[0]}_{row['data_solicitacao'].strftime('%Y%m%d')}.xlsx"}
                     st.rerun()
             with action_col2:
                 if st.button("🗑️", key=f"delete_{row['id']}", help="Excluir solicitação"):
-                    # Marca a solicitação para exclusão e recarrega para mostrar o modal
-                    st.session_state.solicitacao_para_excluir = row
-                    st.rerun()
+                    st.session_state.solicitacao_para_excluir = row; st.rerun()
 
     # --- LÓGICA DE DOWNLOAD E EXPORTAÇÃO ---
     if st.session_state.download_info:
@@ -219,6 +231,3 @@ if st.session_state.solicitacao_para_excluir is None:
         st.download_button(label="📊 Exportar Lista Filtrada para Excel", data=excel_data,
                            file_name=f"relatorio_solicitacoes_{datetime.now().strftime('%Y%m%d')}.xlsx",
                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-
-st.caption("Desenvolvido por 🧙‍♂️ Fabio Sena 🧙‍♂️ | Versão 1.3")
-
