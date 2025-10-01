@@ -1,22 +1,33 @@
-# app.py
+# app.py (versão com Senha Mestre)
 
 import streamlit as st
 from streamlit.errors import StreamlitAPIException
-from utils import configurar_pagina # Importa a nova função
+from utils import configurar_pagina
 
 # --- CONFIGURAÇÃO DA PÁGINA ---
-# A função agora cuida do st.set_page_config e do título
-# O título aqui é o que aparece na aba do navegador
 configurar_pagina(titulo_pagina="Sistema de Manutenção")
 
-# --- ESTADO DA SESSÃO (sem alterações) ---
+# --- ESTADO DA SESSÃO ---
+# Adicionamos 'autenticado' para controlar o acesso com a senha mestre
+if 'autenticado' not in st.session_state: st.session_state.autenticado = False
 if 'nome' not in st.session_state: st.session_state.nome = ""
 if 'setor_cargo' not in st.session_state: st.session_state.setor_cargo = ""
 if 'identificado' not in st.session_state: st.session_state.identificado = False
 
-# --- FUNÇÃO DE IDENTIFICAÇÃO ---
+# --- FUNÇÕES DE AUTENTICAÇÃO E IDENTIFICAÇÃO ---
+def tela_de_senha():
+    st.header("Acesso Restrito")
+    senha_digitada = st.text_input("Por favor, digite a senha mestre para acessar o sistema:", type="password")
+    
+    if st.button("Entrar"):
+        # Compara a senha digitada com a senha no secrets.toml
+        if senha_digitada == st.secrets["auth"]["master_password"]:
+            st.session_state.autenticado = True
+            st.rerun() # Recarrega a página para liberar o acesso
+        else:
+            st.error("Senha incorreta. Tente novamente.")
+
 def tela_identificacao():
-    # O título principal já foi adicionado pela função configurar_pagina
     st.header("Identificação do Usuário")
     
     if st.session_state.nome == "":
@@ -42,11 +53,18 @@ def tela_identificacao():
             else:
                 st.warning("O Setor/Cargo é obrigatório.")
 
-# --- LÓGICA PRINCIPAL ---
-if st.session_state.identificado:
+# --- LÓGICA PRINCIPAL DE ROTEAMENTO ---
+# 1. Verifica se o usuário passou pela tela de senha
+if not st.session_state.autenticado:
+    tela_de_senha()
+
+# 2. Se passou pela senha, mas não se identificou, mostra a tela de identificação
+elif not st.session_state.identificado:
+    tela_identificacao()
+
+# 3. Se já está autenticado e identificado, mostra a tela de boas-vindas
+else:
     st.write("Use o menu à esquerda para navegar entre as funcionalidades.")
     st.info("⬅️ Você pode criar uma nova solicitação ou consultar o histórico a qualquer momento.")
-else:
-    tela_identificacao()
 
 # A assinatura foi movida para a função configurar_pagina na sidebar
